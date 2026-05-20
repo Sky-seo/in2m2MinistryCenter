@@ -1,0 +1,638 @@
+<script>
+  const state = {
+    data: null,
+    selectedSundays: new Set(),
+    currentView: 'dashboard',
+    modalMode: null,
+    editingId: null,
+    availabilityRequestId: 0,
+    hasEditedAvailability: false,
+    hasPendingAssignmentChanges: false,
+  };
+
+  const server = {
+    call(method, ...args) {
+      return new Promise((resolve, reject) => {
+        google.script.run
+          .withSuccessHandler(resolve)
+          .withFailureHandler((error) => reject(error))
+          [method](...args);
+      });
+    },
+  };
+
+  function bootPublicApp() {
+    bindPublicEvents();
+    renderPublicLoading();
+    loadPublicData().then(renderPublicPage).catch(showPublicError);
+  }
+
+  function bootAdminApp() {
+    bindAdminEvents();
+    state.data = state.data || {};
+    renderAdminShellLoading();
+    loadAdminStatusData().catch((error) => showToast(error.message || String(error)));
+    loadAdminAssignmentsData().catch((error) => showToast(error.message || String(error)));
+    setTimeout(() => {
+      loadAdminSecondaryData().then(renderAdminSecondary).catch((error) => showToast(error.message || String(error)));
+    }, 100);
+  }
+
+  function loadData() {
+    return server.call('getAppData').then((data) => {
+      state.data = data;
+      return data;
+    });
+  }
+
+  function loadAdminPrimaryData() {
+    return server.call('getAdminPrimaryData').then((data) => {
+      state.data = data;
+      return data;
+    });
+  }
+
+  function loadAdminStatusData() {
+    return server.call('getAdminStatusData').then((data) => {
+      state.data = Object.assign({}, state.data, data);
+      renderDashboard();
+      renderFilterOptions();
+      renderAvailability();
+      updateLineupButton();
+      return data;
+    });
+  }
+
+  function loadAdminAssignmentsData() {
+    return server.call('getAdminAssignmentsData', state.data && state.data.targetMonth).then((data) => {
+      state.data = Object.assign({}, state.data, data);
+      renderAssignments();
+      renderAvailability();
+      updateLineupButton();
+      return data;
+    });
+  }
+
+  function loadAdminSecondaryData() {
+    return server.call('getAdminSecondaryData').then((data) => {
+      state.data = Object.assign({}, state.data, data);
+      return data;
+    });
+  }
+
+  function loadPublicData() {
+    return server.call('getPublicData').then((data) => {
+      state.data = data;
+      return data;
+    });
+  }
+
+  function renderPublicPage() {
+    const data = state.data;
+    document.getElementById('targetMonthLabel').textContent = formatMonth(data.targetMonth);
+    const select = document.getElementById('memberSelect');
+    select.innerHTML = '<option value="">이름을 선택해 주세요</option>' + data.activeMembers
+      .map((member) => `<option value="${escapeHtml(member.Member_ID)}">${escapeHtml(member.Name)}</option>`)
+      .join('');
+    select.disabled = false;
+    document.getElementById('submitAvailability').disabled = false;
+    renderSundayCards();
+  }
+
+  function renderPublicLoading() {
+    document.getElementById('targetMonthLabel').textContent = '불러오는 중';
+    document.getElementById('memberSelect').disabled = true;
+    document.getElementById('submitAvailability').disabled = true;
+  }
+
+  function bindPublicEvents() {
+    document.getElementById('memberSelect').addEventListener('change', handleMemberSelect);
+    document.getElementById('submitAvailability').addEventListener('click', handleAvailabilitySubmit);
+    document.getElementById('submitAgain').addEventListener('click', () => {
+      document.getElementById('successCard').classList.add('hidden');
+      document.getElementById('submissionCard').classList.remove('hidden');
+    });
+  }
+
+  function handleMemberSelect(event) {
+    const member = state.data.activeMembers.find((item) => item.Member_ID === event.target.value);
+    const pill = document.getElementById('memberPosition');
+    const requestId = ++state.availabilityRequestId;
+    state.selectedSundays = new Set();
+    state.hasEditedAvailability = false;
+    renderSundayCards();
+    if (!member) {
+      pill.classList.add('hidden');
+      pill.textContent = '';
+      return;
+    }
+    pill.textContent = member.Position;
+    pill.classList.remove('hidden');
+    server.call('getMemberAvailability', state.data.targetMonth, member.Member_ID)
+      .then((existing) => {
+        if (requestId !== state.availabilityRequestId) return;
+        if (state.hasEditedAvailability) return;
+        state.selectedSundays = existing ? parseAvailableSundays(existing.Available_Sundays) : new Set();
+        renderSundayCards();
+      })
+      .catch(showPublicError);
+  }
+
+  function renderSundayCards() {
+    const grid = document.getElementById('sundayGrid');
+    if (!state.data) return;
+    grid.innerHTML = state.data.sundays.map((date) => {
+      const selected = state.selectedSundays.has(date);
+      return `
+        <button type="button" class="date-card ${selected ? 'selected' : ''}" data-date="${date}">
+          <strong>${Number(date.slice(8, 10))}일 ${selected ? '✓' : ''}</strong>
+          <span>${date}</span>
+        </button>
+      `;
+    }).join('');
+    grid.querySelectorAll('.date-card').forEach((button) => {
+      button.addEventListener('click', () => {
+        const date = button.dataset.date;
+        state.hasEditedAvailability = true;
+        if (state.selectedSundays.has(date)) state.selectedSundays.delete(date);
+        else state.selectedSundays.add(date);
+        renderSundayCards();
+      });
+    });
+  }
+
+  function handleAvailabilitySubmit() {
+    const message = document.getElementById('formMessage');
+    const memberId = document.getElementById('memberSelect').value;
+    if (!memberId) {
+      message.textContent = '이름을 선택해 주세요.';
+      return;
+    }
+    const button = document.getElementById('submitAvailability');
+    button.disabled = true;
+    button.textContent = '저장 중...';
+    message.textContent = '';
+    server.call('submitAvailability', {
+      Month: state.data.targetMonth,
+      Member_ID: memberId,
+      Available_Sundays: Array.from(state.selectedSundays),
+      Notes: document.getElementById('notes').value,
+    }).then(() => {
+      document.getElementById('submissionCard').classList.add('hidden');
+      document.getElementById('successCard').classList.remove('hidden');
+    }).catch(showPublicError).finally(() => {
+      button.disabled = false;
+      button.textContent = '제출하기';
+    });
+  }
+
+  function showPublicError(error) {
+    document.getElementById('formMessage').textContent = error.message || String(error);
+  }
+
+  function bindAdminEvents() {
+    document.querySelectorAll('.nav-item').forEach((button) => {
+      button.addEventListener('click', () => switchView(button.dataset.view));
+    });
+    bindIfPresent('refreshData', 'click', () => loadAdminPrimaryData().then(renderAdminPrimary));
+    bindIfPresent('addMember', 'click', () => openMemberModal());
+    bindIfPresent('addPosition', 'click', () => openPositionModal());
+    bindIfPresent('memberSearch', 'input', renderMembers);
+    bindIfPresent('memberPositionFilter', 'change', renderMembers);
+    bindIfPresent('memberActiveFilter', 'change', renderMembers);
+    bindIfPresent('availabilityPositionFilter', 'change', renderAvailability);
+    bindIfPresent('availabilityStatusFilter', 'change', renderAvailability);
+    bindIfPresent('sendDashboardReminders', 'click', sendReminders);
+    bindIfPresent('sendAvailabilityReminders', 'click', sendReminders);
+    bindIfPresent('generateLineup', 'click', saveGeneratedLineup);
+    bindIfPresent('saveSettings', 'click', saveSettings);
+    bindIfPresent('closeModal', 'click', closeModal);
+    bindIfPresent('cancelModal', 'click', closeModal);
+    bindIfPresent('saveModal', 'click', saveModal);
+  }
+
+  function bindIfPresent(id, eventName, handler) {
+    const element = document.getElementById(id);
+    if (element) element.addEventListener(eventName, handler);
+  }
+
+  function switchView(view) {
+    state.currentView = view;
+    document.querySelectorAll('.nav-item').forEach((button) => button.classList.toggle('active', button.dataset.view === view));
+    document.querySelectorAll('.admin-view').forEach((section) => section.classList.toggle('active', section.id === `view-${view}`));
+    document.getElementById('adminPageTitle').textContent = view.charAt(0).toUpperCase() + view.slice(1);
+  }
+
+  function renderAdmin() {
+    renderAdminPrimary();
+    renderAdminSecondary();
+  }
+
+  function renderAdminShellLoading() {
+    document.getElementById('dashboardStatusRows').innerHTML = '<tr><td colspan="5">Dashboard 불러오는 중...</td></tr>';
+    document.getElementById('availabilityHead').innerHTML = '';
+    document.getElementById('availabilityRows').innerHTML = '<tr><td>Availability 불러오는 중...</td></tr>';
+    document.getElementById('assignmentsHead').innerHTML = '';
+    document.getElementById('assignmentsRows').innerHTML = '<tr><td>Assignments 불러오는 중...</td></tr>';
+  }
+
+  function renderAdminPrimary() {
+    renderDashboard();
+    renderFilterOptions();
+    renderAvailability();
+    renderAssignments();
+    updateLineupButton();
+  }
+
+  function renderAdminSecondary() {
+    renderMembers();
+    renderPositions();
+    renderSettings();
+  }
+
+  function renderDashboard() {
+    const activeMembers = state.data.activeMembers || (state.data.members || []).filter((member) => member.Active === 'Yes');
+    const submitted = (state.data.status || []).filter((row) => row.Status === 'Submitted');
+    document.getElementById('totalMembers').textContent = activeMembers.length;
+    document.getElementById('submittedCount').textContent = submitted.length;
+    document.getElementById('notSubmittedCount').textContent = Math.max(activeMembers.length - submitted.length, 0);
+    document.getElementById('targetMonthSummary').textContent = formatMonth(state.data.targetMonth);
+    document.getElementById('dashboardStatusRows').innerHTML = statusRowsHtml(state.data.status || []);
+  }
+
+  function renderFilterOptions() {
+    const options = '<option value="">모든 포지션</option>' + (state.data.positions || [])
+      .map((position) => `<option value="${escapeHtml(position.Position_Name)}">${escapeHtml(position.Position_Name)}</option>`)
+      .join('');
+    document.getElementById('memberPositionFilter').innerHTML = options;
+    document.getElementById('availabilityPositionFilter').innerHTML = options;
+  }
+
+  function renderMembers() {
+    const search = document.getElementById('memberSearch').value.trim().toLowerCase();
+    const position = document.getElementById('memberPositionFilter').value;
+    const active = document.getElementById('memberActiveFilter').value;
+    const rows = (state.data.members || []).filter((member) => {
+      if (search && !String(member.Name).toLowerCase().includes(search)) return false;
+      if (position && member.Position !== position) return false;
+      if (active && member.Active !== active) return false;
+      return true;
+    });
+    document.getElementById('membersRows').innerHTML = rows.map((member) => `
+      <tr>
+        <td><strong>${escapeHtml(member.Name)}</strong></td>
+        <td>${escapeHtml(member.Email)}</td>
+        <td>${escapeHtml(member.Position)}</td>
+        <td>${activeBadge(member.Active)}</td>
+        <td>${escapeHtml(member.Join_Date)}</td>
+        <td>
+          <div class="row-actions">
+            <button class="secondary-button" onclick="openMemberModal('${member.Member_ID}')">Edit</button>
+            <button class="ghost-button" onclick="toggleMember('${member.Member_ID}', '${member.Active}')">${member.Active === 'Yes' ? 'Deactivate' : 'Reactivate'}</button>
+            <button class="danger-button" onclick="removeMember('${member.Member_ID}')">Delete</button>
+          </div>
+        </td>
+      </tr>
+    `).join('');
+  }
+
+  function renderPositions() {
+    document.getElementById('positionsRows').innerHTML = (state.data.positions || []).map((position) => `
+      <tr>
+        <td><strong>${escapeHtml(position.Position_Name)}</strong></td>
+        <td>${escapeHtml(position.Required_Per_Sunday)}</td>
+        <td>${escapeHtml(position.Sort_Order)}</td>
+        <td>${activeBadge(position.Active)}</td>
+        <td>
+          <div class="row-actions">
+            <button class="secondary-button" onclick="openPositionModal('${position.Position_ID}')">Edit</button>
+            <button class="ghost-button" onclick="togglePosition('${position.Position_ID}', '${position.Active}')">${position.Active === 'Yes' ? 'Deactivate' : 'Reactivate'}</button>
+            <button class="danger-button" onclick="removePosition('${position.Position_ID}')">Delete</button>
+          </div>
+        </td>
+      </tr>
+    `).join('');
+  }
+
+  function renderAvailability() {
+    const position = document.getElementById('availabilityPositionFilter').value;
+    const status = document.getElementById('availabilityStatusFilter').value;
+    const rows = (state.data.availabilityRows || state.data.status || []).filter((row) => {
+      if (position && row.Position !== position) return false;
+      if (status && row.Status !== status) return false;
+      return true;
+    });
+    const sundays = state.data.sundays;
+    document.getElementById('availabilityHead').innerHTML = `
+      <tr>
+        ${sundays.map((date) => `<th class="week-column">${formatShortDate(date)}</th>`).join('')}
+      </tr>
+    `;
+
+    const positionNames = (state.data.positions || [])
+      .map((item) => item.Position_Name)
+      .filter((name) => !position || name === position);
+    const extraPositionNames = rows
+      .map((row) => row.Position)
+      .filter((name) => name && !positionNames.includes(name));
+    const groupedPositions = positionNames.concat(extraPositionNames);
+
+    document.getElementById('availabilityRows').innerHTML = `
+      <tr>
+        ${sundays.map((date) => availabilityWeekCellHtml(date, groupedPositions, rows)).join('')}
+      </tr>
+    `;
+  }
+
+  function availabilityWeekCellHtml(date, positionNames, rows) {
+    return `
+      <td class="availability-week-cell">
+        ${positionNames.map((positionName) => {
+          const names = rows
+            .filter((row) => row.Position === positionName)
+            .filter((row) => parseAvailableSundays(row.Available_Sundays).has(date))
+            .map((row) => row.Name);
+          return `
+            <div class="availability-position-block">
+              <strong>${escapeHtml(positionName)}</strong>
+              ${names.length
+                ? names.map((name) => availabilityNameButtonHtml(date, positionName, name)).join('')
+                : '<em>-</em>'}
+            </div>
+          `;
+        }).join('')}
+      </td>
+    `;
+  }
+
+  function availabilityNameButtonHtml(date, positionName, name) {
+    const selected = isAssigned(date, positionName, name);
+    return `
+      <button
+        type="button"
+        class="availability-name ${selected ? 'selected' : ''}"
+        data-date="${escapeAttr(date)}"
+        data-position="${escapeAttr(positionName)}"
+        data-name="${escapeAttr(name)}"
+        onclick="toggleAvailabilityAssignment(this)"
+      >
+        <span>${escapeHtml(name)}</span>
+        ${selected ? '<b aria-hidden="true">×</b>' : ''}
+      </button>
+    `;
+  }
+
+  function statusRowsHtml(rows) {
+    return rows.map((row) => `
+      <tr>
+        <td><strong>${escapeHtml(row.Name)}</strong></td>
+        <td>${escapeHtml(row.Position)}</td>
+        <td>${statusBadge(row.Status)}</td>
+        <td>${escapeHtml(row.Available_Sundays || '-')}</td>
+        <td>${escapeHtml(row.Submitted_At || '-')}</td>
+      </tr>
+    `).join('');
+  }
+
+  function renderAssignments() {
+    const positions = state.data.activePositions || [];
+    document.getElementById('assignmentsHead').innerHTML = `
+      <tr><th>Date</th>${positions.map((position) => `<th>${escapeHtml(position.Position_Name)}</th>`).join('')}</tr>
+    `;
+    document.getElementById('assignmentsRows').innerHTML = (state.data.assignments || []).map((row) => `
+      <tr data-date="${escapeHtml(row.Date)}">
+        <td><strong>${escapeHtml(row.Date)}</strong></td>
+        ${positions.map((position) => `
+          <td>${assignmentNamesHtml(row[position.Position_Name])}</td>
+        `).join('')}
+      </tr>
+    `).join('');
+  }
+
+  function assignmentNamesHtml(value) {
+    const names = splitNames(value);
+    return names.length
+      ? names.map((name) => `<span class="assignment-name-pill">${escapeHtml(name)}</span>`).join('')
+      : '<span class="assignment-empty">-</span>';
+  }
+
+  function renderSettings() {
+    const settings = state.data.settings;
+    document.getElementById('settingTargetMonth').value = settings.Current_Target_Month || state.data.targetMonth;
+    document.getElementById('settingDeadline').value = settings.Submission_Deadline || '';
+    document.getElementById('settingAdminEmail').value = settings.Admin_Email || '';
+    document.getElementById('settingChurchName').value = settings.Church_Name || '';
+    document.getElementById('settingTeamName').value = settings.Team_Name || '';
+    document.getElementById('settingWebAppUrl').value = settings.Web_App_URL || state.data.appUrl || '';
+  }
+
+  function openMemberModal(memberId) {
+    const member = state.data.members.find((item) => item.Member_ID === memberId) || {};
+    state.modalMode = 'member';
+    state.editingId = memberId || null;
+    document.getElementById('modalTitle').textContent = memberId ? '멤버 수정' : '새 멤버 추가';
+    document.getElementById('modalForm').innerHTML = `
+      <label>이름<input name="Name" value="${escapeAttr(member.Name || '')}" required></label>
+      <label>이메일<input name="Email" type="email" value="${escapeAttr(member.Email || '')}"></label>
+      <label>포지션<select name="Position">${state.data.positions.map((position) => `<option value="${escapeAttr(position.Position_Name)}" ${member.Position === position.Position_Name ? 'selected' : ''}>${escapeHtml(position.Position_Name)}</option>`).join('')}</select></label>
+      <label>상태<select name="Active"><option value="Yes" ${member.Active !== 'No' ? 'selected' : ''}>활성</option><option value="No" ${member.Active === 'No' ? 'selected' : ''}>비활성</option></select></label>
+      <label>메모<textarea name="Notes" rows="3">${escapeHtml(member.Notes || '')}</textarea></label>
+    `;
+    openModal();
+  }
+
+  function openPositionModal(positionId) {
+    const position = state.data.positions.find((item) => item.Position_ID === positionId) || {};
+    state.modalMode = 'position';
+    state.editingId = positionId || null;
+    document.getElementById('modalTitle').textContent = positionId ? '포지션 수정' : '새 포지션 추가';
+    document.getElementById('modalForm').innerHTML = `
+      <label>포지션 이름<input name="Position_Name" value="${escapeAttr(position.Position_Name || '')}" required></label>
+      <label>주일별 필요 인원<input name="Required_Per_Sunday" type="number" min="1" value="${escapeAttr(position.Required_Per_Sunday || 1)}"></label>
+      <label>정렬 순서<input name="Sort_Order" type="number" min="1" value="${escapeAttr(position.Sort_Order || state.data.positions.length + 1)}"></label>
+      <label>상태<select name="Active"><option value="Yes" ${position.Active !== 'No' ? 'selected' : ''}>활성</option><option value="No" ${position.Active === 'No' ? 'selected' : ''}>비활성</option></select></label>
+    `;
+    openModal();
+  }
+
+  function openModal() {
+    document.getElementById('modalBackdrop').classList.remove('hidden');
+  }
+
+  function closeModal() {
+    document.getElementById('modalBackdrop').classList.add('hidden');
+    state.modalMode = null;
+    state.editingId = null;
+  }
+
+  function saveModal() {
+    const values = Object.fromEntries(new FormData(document.getElementById('modalForm')).entries());
+    const method = state.modalMode === 'member' ? 'saveMember' : 'savePosition';
+    const idKey = state.modalMode === 'member' ? 'Member_ID' : 'Position_ID';
+    if (state.editingId) values[idKey] = state.editingId;
+    server.call(method, values)
+      .then((data) => {
+        state.data = data;
+        closeModal();
+        renderAdmin();
+        showToast('저장되었습니다.');
+      })
+      .catch((error) => showToast(error.message || String(error)));
+  }
+
+  function toggleMember(memberId, active) {
+    server.call('setMemberActive', memberId, active !== 'Yes').then(updateAfterAction);
+  }
+
+  function togglePosition(positionId, active) {
+    server.call('setPositionActive', positionId, active !== 'Yes').then(updateAfterAction);
+  }
+
+  function removeMember(memberId) {
+    if (!confirm('멤버를 삭제하면 멤버 목록에서 제거됩니다. 가능한 경우 비활성 처리를 권장합니다. 삭제할까요?')) return;
+    server.call('deleteMember', memberId).then(updateAfterAction);
+  }
+
+  function removePosition(positionId) {
+    if (!confirm('포지션을 삭제할까요? 기록 보존을 위해 비활성 처리를 권장합니다.')) return;
+    server.call('deletePosition', positionId).then(updateAfterAction);
+  }
+
+  function saveGeneratedLineup() {
+    const button = document.getElementById('generateLineup');
+    if (button) {
+      button.disabled = true;
+      button.textContent = '저장 중...';
+    }
+    server.call('saveAssignments', {
+      Month: state.data.targetMonth,
+      Assignments: state.data.assignments,
+    }).then((data) => {
+      state.data = data;
+      state.hasPendingAssignmentChanges = false;
+      renderAdminPrimary();
+      showToast('라인업이 저장되었습니다.');
+    }).catch((error) => {
+      showToast(error.message || String(error));
+      updateLineupButton();
+    });
+  }
+
+  function toggleAvailabilityAssignment(button) {
+    const date = button.dataset.date;
+    const position = button.dataset.position;
+    const name = button.dataset.name;
+    const row = ensureAssignmentRow(date);
+    const names = splitNames(row[position]);
+    const existingIndex = names.findIndex((item) => normalizeText(item) === normalizeText(name));
+    if (existingIndex > -1) names.splice(existingIndex, 1);
+    else names.push(name);
+    row[position] = names.join(', ');
+    state.hasPendingAssignmentChanges = true;
+    renderAssignments();
+    renderAvailability();
+    updateLineupButton();
+  }
+
+  function ensureAssignmentRow(date) {
+    let row = state.data.assignments.find((item) => item.Date === date);
+    if (!row) {
+      row = { Date: date };
+      (state.data.activePositions || []).forEach((position) => row[position.Position_Name] = '');
+      state.data.assignments.push(row);
+      state.data.assignments.sort((a, b) => String(a.Date).localeCompare(String(b.Date)));
+    }
+    return row;
+  }
+
+  function isAssigned(date, position, name) {
+    const row = state.data.assignments.find((item) => item.Date === date);
+    if (!row) return false;
+    return splitNames(row[position]).some((item) => normalizeText(item) === normalizeText(name));
+  }
+
+  function updateLineupButton() {
+    const button = document.getElementById('generateLineup');
+    if (!button) return;
+    button.classList.toggle('hidden', !state.hasPendingAssignmentChanges);
+    button.disabled = false;
+    button.textContent = '라인업 생성';
+  }
+
+  function saveSettings() {
+    const settings = {
+      Current_Target_Month: document.getElementById('settingTargetMonth').value,
+      Submission_Deadline: document.getElementById('settingDeadline').value,
+      Admin_Email: document.getElementById('settingAdminEmail').value,
+      Church_Name: document.getElementById('settingChurchName').value,
+      Team_Name: document.getElementById('settingTeamName').value,
+      Web_App_URL: document.getElementById('settingWebAppUrl').value,
+    };
+    server.call('saveSettings', settings).then(updateAfterAction);
+  }
+
+  function sendReminders() {
+    server.call('sendReminderEmails', state.data.targetMonth).then((result) => {
+      showToast(`리마인더 ${result.sent}건을 발송했습니다.`);
+    }).catch((error) => showToast(error.message || String(error)));
+  }
+
+  function updateAfterAction(data) {
+    state.data = data;
+    renderAdmin();
+    showToast('반영되었습니다.');
+  }
+
+  function statusBadge(status) {
+    const submitted = status === 'Submitted';
+    return `<span class="status-badge ${submitted ? 'status-submitted' : 'status-missing'}">${submitted ? '제출 완료' : '미제출'}</span>`;
+  }
+
+  function activeBadge(active) {
+    const isActive = active === 'Yes';
+    return `<span class="status-badge ${isActive ? 'status-submitted' : 'status-inactive'}">${isActive ? '활성' : '비활성'}</span>`;
+  }
+
+  function showToast(message) {
+    const toast = document.getElementById('toast');
+    toast.textContent = message;
+    toast.classList.remove('hidden');
+    setTimeout(() => toast.classList.add('hidden'), 3200);
+  }
+
+  function formatMonth(month) {
+    if (!month) return '-';
+    const parts = month.split('-');
+    return `${parts[0]}년 ${Number(parts[1])}월`;
+  }
+
+  function formatShortDate(date) {
+    if (!date) return '-';
+    return `${Number(date.slice(5, 7))}/${Number(date.slice(8, 10))}`;
+  }
+
+  function parseAvailableSundays(value) {
+    return new Set(String(value || '').split(',').map((item) => item.trim()).filter(Boolean));
+  }
+
+  function splitNames(value) {
+    return String(value || '').split(',').map((item) => item.trim()).filter(Boolean);
+  }
+
+  function normalizeText(value) {
+    return String(value || '').trim().toLowerCase();
+  }
+
+  function escapeHtml(value) {
+    return String(value || '')
+      .replace(/&/g, '&amp;')
+      .replace(/</g, '&lt;')
+      .replace(/>/g, '&gt;')
+      .replace(/"/g, '&quot;')
+      .replace(/'/g, '&#039;');
+  }
+
+  function escapeAttr(value) {
+    return escapeHtml(value).replace(/`/g, '&#096;');
+  }
+</script>

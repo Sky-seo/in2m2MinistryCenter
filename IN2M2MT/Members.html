@@ -1,0 +1,26 @@
+<div class="panel">
+  <div class="panel-header">
+    <div>
+      <h3>멤버 관리</h3>
+      <p>활성 멤버만 공개 제출 화면에 표시됩니다.</p>
+    </div>
+    <button class="primary-button" id="addMember">새 멤버 추가</button>
+  </div>
+  <div class="toolbar">
+    <input id="memberSearch" type="search" placeholder="이름 검색">
+    <select id="memberPositionFilter"><option value="">모든 포지션</option></select>
+    <select id="memberActiveFilter">
+      <option value="">전체 상태</option>
+      <option value="Yes">활성</option>
+      <option value="No">비활성</option>
+    </select>
+  </div>
+  <div class="table-wrap">
+    <table>
+      <thead>
+        <tr><th>이름</th><th>이메일</th><th>포지션</th><th>상태</th><th>가입일</th><th>관리</th></tr>
+      </thead>
+      <tbody id="membersRows"></tbody>
+    </table>
+  </div>
+</div>
