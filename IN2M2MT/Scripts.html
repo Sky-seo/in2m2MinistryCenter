@@ -8,6 +8,12 @@
     availabilityRequestId: 0,
     hasEditedAvailability: false,
     hasPendingAssignmentChanges: false,
+    currentTeam: 'production',
+    adminTeam: 'production',
+    adminCache: {},
+    adminPendingChanges: {},
+    pendingDelete: null,
+    reminderSelectedMemberIds: new Set(),
   };
 
   const server = {
@@ -46,15 +52,21 @@
   }
 
   function loadAdminPrimaryData() {
-    return server.call('getAdminPrimaryData').then((data) => {
+    const requestedTeam = state.adminTeam;
+    return server.call('getAdminPrimaryData', requestedTeam).then((data) => {
+      if (requestedTeam !== state.adminTeam) return data;
       state.data = data;
+      cacheAdminData();
       return data;
     });
   }
 
   function loadAdminStatusData() {
-    return server.call('getAdminStatusData').then((data) => {
+    const requestedTeam = state.adminTeam;
+    return server.call('getAdminStatusData', requestedTeam).then((data) => {
+      if (requestedTeam !== state.adminTeam) return data;
       state.data = Object.assign({}, state.data, data);
+      cacheAdminData();
       renderDashboard();
       renderFilterOptions();
       renderAvailability();
@@ -64,8 +76,11 @@
   }
 
   function loadAdminAssignmentsData() {
-    return server.call('getAdminAssignmentsData', state.data && state.data.targetMonth).then((data) => {
+    const requestedTeam = state.adminTeam;
+    return server.call('getAdminAssignmentsData', state.data && state.data.targetMonth, requestedTeam).then((data) => {
+      if (requestedTeam !== state.adminTeam) return data;
       state.data = Object.assign({}, state.data, data);
+      cacheAdminData();
       renderAssignments();
       renderAvailability();
       updateLineupButton();
@@ -74,14 +89,17 @@
   }
 
   function loadAdminSecondaryData() {
-    return server.call('getAdminSecondaryData').then((data) => {
+    const requestedTeam = state.adminTeam;
+    return server.call('getAdminSecondaryData', requestedTeam).then((data) => {
+      if (requestedTeam !== state.adminTeam) return data;
       state.data = Object.assign({}, state.data, data);
+      cacheAdminData();
       return data;
     });
   }
 
   function loadPublicData() {
-    return server.call('getPublicData').then((data) => {
+    return server.call('getPublicData', state.currentTeam).then((data) => {
       state.data = data;
       return data;
     });
@@ -89,6 +107,7 @@
 
   function renderPublicPage() {
     const data = state.data;
+    renderTeamTabs();
     document.getElementById('targetMonthLabel').textContent = formatMonth(data.targetMonth);
     const select = document.getElementById('memberSelect');
     select.innerHTML = '<option value="">이름을 선택해 주세요</option>' + data.activeMembers
@@ -105,7 +124,30 @@
     document.getElementById('submitAvailability').disabled = true;
   }
 
+  function renderTeamTabs() {
+    document.querySelectorAll('.team-tab').forEach((button) => {
+      button.classList.toggle('active', button.dataset.team === state.currentTeam);
+    });
+  }
+
+  function switchPublicTeam(team) {
+    if (!team || team === state.currentTeam) return;
+    state.currentTeam = team;
+    state.data = null;
+    state.selectedSundays = new Set();
+    state.hasEditedAvailability = false;
+    document.getElementById('memberPosition').classList.add('hidden');
+    document.getElementById('memberPosition').textContent = '';
+    document.getElementById('notes').value = '';
+    renderTeamTabs();
+    renderPublicLoading();
+    loadPublicData().then(renderPublicPage).catch(showPublicError);
+  }
+
   function bindPublicEvents() {
+    document.querySelectorAll('.team-tab').forEach((button) => {
+      button.addEventListener('click', () => switchPublicTeam(button.dataset.team));
+    });
     document.getElementById('memberSelect').addEventListener('change', handleMemberSelect);
     document.getElementById('submitAvailability').addEventListener('click', handleAvailabilitySubmit);
     document.getElementById('submitAgain').addEventListener('click', () => {
@@ -128,7 +170,7 @@
     }
     pill.textContent = member.Position;
     pill.classList.remove('hidden');
-    server.call('getMemberAvailability', state.data.targetMonth, member.Member_ID)
+    server.call('getMemberAvailability', state.data.targetMonth, member.Member_ID, state.currentTeam)
       .then((existing) => {
         if (requestId !== state.availabilityRequestId) return;
         if (state.hasEditedAvailability) return;
@@ -173,6 +215,7 @@
     button.textContent = '저장 중...';
     message.textContent = '';
     server.call('submitAvailability', {
+      Team: state.currentTeam,
       Month: state.data.targetMonth,
       Member_ID: memberId,
       Available_Sundays: Array.from(state.selectedSundays),
@@ -191,10 +234,17 @@
   }
 
   function bindAdminEvents() {
-    document.querySelectorAll('.nav-item').forEach((button) => {
-      button.addEventListener('click', () => switchView(button.dataset.view));
+    document.querySelectorAll('.team-header').forEach((button) => {
+      button.addEventListener('click', () => switchAdminTeam(button.closest('.team-section').dataset.team));
     });
-    bindIfPresent('refreshData', 'click', () => loadAdminPrimaryData().then(renderAdminPrimary));
+    document.querySelectorAll('.nav-item').forEach((button) => {
+      button.addEventListener('click', () => {
+        const team = button.closest('.team-section').dataset.team;
+        if (team !== state.adminTeam) switchAdminTeam(team, button.dataset.view);
+        else switchView(button.dataset.view);
+      });
+    });
+    bindIfPresent('refreshData', 'click', () => reloadAdminTeam(true));
     bindIfPresent('addMember', 'click', () => openMemberModal());
     bindIfPresent('addPosition', 'click', () => openPositionModal());
     bindIfPresent('memberSearch', 'input', renderMembers);
@@ -202,13 +252,18 @@
     bindIfPresent('memberActiveFilter', 'change', renderMembers);
     bindIfPresent('availabilityPositionFilter', 'change', renderAvailability);
     bindIfPresent('availabilityStatusFilter', 'change', renderAvailability);
-    bindIfPresent('sendDashboardReminders', 'click', sendReminders);
-    bindIfPresent('sendAvailabilityReminders', 'click', sendReminders);
+    bindIfPresent('sendDashboardReminders', 'click', openReminderModal);
+    bindIfPresent('sendAvailabilityReminders', 'click', openReminderModal);
     bindIfPresent('generateLineup', 'click', saveGeneratedLineup);
-    bindIfPresent('saveSettings', 'click', saveSettings);
+    bindIfPresent('saveSettings', 'click', (event) => saveSettings(event.currentTarget));
     bindIfPresent('closeModal', 'click', closeModal);
     bindIfPresent('cancelModal', 'click', closeModal);
     bindIfPresent('saveModal', 'click', saveModal);
+    bindIfPresent('cancelDelete', 'click', closeDeleteModal);
+    bindIfPresent('confirmDelete', 'click', confirmDelete);
+    bindIfPresent('closeReminderModal', 'click', closeReminderModal);
+    bindIfPresent('cancelReminder', 'click', closeReminderModal);
+    bindIfPresent('confirmReminder', 'click', confirmReminder);
   }
 
   function bindIfPresent(id, eventName, handler) {
@@ -218,9 +273,77 @@
 
   function switchView(view) {
     state.currentView = view;
-    document.querySelectorAll('.nav-item').forEach((button) => button.classList.toggle('active', button.dataset.view === view));
+    document.querySelectorAll('.nav-item').forEach((button) => {
+      const team = button.closest('.team-section').dataset.team;
+      button.classList.toggle('active', team === state.adminTeam && button.dataset.view === view);
+    });
     document.querySelectorAll('.admin-view').forEach((section) => section.classList.toggle('active', section.id === `view-${view}`));
     document.getElementById('adminPageTitle').textContent = view.charAt(0).toUpperCase() + view.slice(1);
+  }
+
+  function switchAdminTeam(team, view) {
+    if (!team) return;
+    if (view) state.currentView = view;
+    if (team === state.adminTeam) {
+      switchView(state.currentView);
+      renderAdminTeamLabel();
+      return;
+    }
+    cacheAdminData();
+    state.adminPendingChanges[state.adminTeam] = state.hasPendingAssignmentChanges;
+    state.adminTeam = team;
+    state.hasPendingAssignmentChanges = !!state.adminPendingChanges[team];
+    if (hasAdminCache(team)) {
+      state.data = cloneAdminData(state.adminCache[team]);
+      renderAdminTeamLabel();
+      renderAdmin();
+      return;
+    }
+    state.data = {};
+    renderAdminShellLoading();
+    reloadAdminTeam();
+  }
+
+  function reloadAdminTeam(force) {
+    if (!force && hasAdminCache(state.adminTeam)) {
+      state.data = cloneAdminData(state.adminCache[state.adminTeam]);
+      state.hasPendingAssignmentChanges = !!state.adminPendingChanges[state.adminTeam];
+      renderAdminTeamLabel();
+      renderAdmin();
+      return Promise.resolve(state.data);
+    }
+    if (force) {
+      state.hasPendingAssignmentChanges = false;
+      state.adminPendingChanges[state.adminTeam] = false;
+    }
+    renderAdminTeamLabel();
+    loadAdminStatusData().catch((error) => showToast(error.message || String(error)));
+    loadAdminAssignmentsData().catch((error) => showToast(error.message || String(error)));
+    return loadAdminSecondaryData().then(renderAdminSecondary).catch((error) => showToast(error.message || String(error)));
+  }
+
+  function cacheAdminData() {
+    if (!state.data) return;
+    state.adminCache[state.adminTeam] = cloneAdminData(state.data);
+  }
+
+  function hasAdminCache(team) {
+    const data = state.adminCache[team];
+    return !!(data && data.settings && data.members && data.positions && data.status && data.assignments);
+  }
+
+  function cloneAdminData(data) {
+    return JSON.parse(JSON.stringify(data || {}));
+  }
+
+  function renderAdminTeamLabel() {
+    document.querySelectorAll('.team-section').forEach((section) => {
+      const active = section.dataset.team === state.adminTeam;
+      section.classList.toggle('active', active);
+      const chevron = section.querySelector('.team-chevron');
+      if (chevron) chevron.textContent = active ? '⌃' : '⌄';
+    });
+    switchView(state.currentView);
   }
 
   function renderAdmin() {
@@ -229,7 +352,8 @@
   }
 
   function renderAdminShellLoading() {
-    document.getElementById('dashboardStatusRows').innerHTML = '<tr><td colspan="5">Dashboard 불러오는 중...</td></tr>';
+    renderAdminTeamLabel();
+    document.getElementById('dashboardStatusRows').innerHTML = '<tr><td colspan="3">Dashboard 불러오는 중...</td></tr>';
     document.getElementById('availabilityHead').innerHTML = '';
     document.getElementById('availabilityRows').innerHTML = '<tr><td>Availability 불러오는 중...</td></tr>';
     document.getElementById('assignmentsHead').innerHTML = '';
@@ -251,13 +375,14 @@
   }
 
   function renderDashboard() {
-    const activeMembers = state.data.activeMembers || (state.data.members || []).filter((member) => member.Active === 'Yes');
-    const submitted = (state.data.status || []).filter((row) => row.Status === 'Submitted');
-    document.getElementById('totalMembers').textContent = activeMembers.length;
-    document.getElementById('submittedCount').textContent = submitted.length;
-    document.getElementById('notSubmittedCount').textContent = Math.max(activeMembers.length - submitted.length, 0);
-    document.getElementById('targetMonthSummary').textContent = formatMonth(state.data.targetMonth);
-    document.getElementById('dashboardStatusRows').innerHTML = statusRowsHtml(state.data.status || []);
+    const members = state.data.members || [];
+    const activeMembers = state.data.activeMembers || members.filter((member) => member.Active === 'Yes');
+    const inactiveMembers = members.filter((member) => member.Active === 'No');
+    document.getElementById('totalMembers').textContent = members.length;
+    document.getElementById('submittedCount').textContent = activeMembers.length;
+    document.getElementById('notSubmittedCount').textContent = inactiveMembers.length;
+    document.getElementById('targetMonthSummary').textContent = formatMonthRange(state.data.targetMonth);
+    document.getElementById('dashboardStatusRows').innerHTML = memberAvailabilityRowsHtml(state.data.status || []);
   }
 
   function renderFilterOptions() {
@@ -284,11 +409,11 @@
         <td>${escapeHtml(member.Email)}</td>
         <td>${escapeHtml(member.Position)}</td>
         <td>${activeBadge(member.Active)}</td>
-        <td>${escapeHtml(member.Join_Date)}</td>
+        <td>${escapeHtml(formatDateOnly(member.Join_Date))}</td>
         <td>
           <div class="row-actions">
             <button class="secondary-button" onclick="openMemberModal('${member.Member_ID}')">Edit</button>
-            <button class="ghost-button" onclick="toggleMember('${member.Member_ID}', '${member.Active}')">${member.Active === 'Yes' ? 'Deactivate' : 'Reactivate'}</button>
+            <button class="ghost-button" onclick="toggleMember('${member.Member_ID}', '${member.Active}', this)">${member.Active === 'Yes' ? 'Deactivate' : 'Reactivate'}</button>
             <button class="danger-button" onclick="removeMember('${member.Member_ID}')">Delete</button>
           </div>
         </td>
@@ -306,7 +431,7 @@
         <td>
           <div class="row-actions">
             <button class="secondary-button" onclick="openPositionModal('${position.Position_ID}')">Edit</button>
-            <button class="ghost-button" onclick="togglePosition('${position.Position_ID}', '${position.Active}')">${position.Active === 'Yes' ? 'Deactivate' : 'Reactivate'}</button>
+            <button class="ghost-button" onclick="togglePosition('${position.Position_ID}', '${position.Active}', this)">${position.Active === 'Yes' ? 'Deactivate' : 'Reactivate'}</button>
             <button class="danger-button" onclick="removePosition('${position.Position_ID}')">Delete</button>
           </div>
         </td>
@@ -316,7 +441,8 @@
 
   function renderAvailability() {
     const position = document.getElementById('availabilityPositionFilter').value;
-    const status = document.getElementById('availabilityStatusFilter').value;
+    const statusFilter = document.getElementById('availabilityStatusFilter');
+    const status = statusFilter ? statusFilter.value : '';
     const rows = (state.data.availabilityRows || state.data.status || []).filter((row) => {
       if (position && row.Position !== position) return false;
       if (status && row.Status !== status) return false;
@@ -382,14 +508,12 @@
     `;
   }
 
-  function statusRowsHtml(rows) {
+  function memberAvailabilityRowsHtml(rows) {
     return rows.map((row) => `
       <tr>
         <td><strong>${escapeHtml(row.Name)}</strong></td>
         <td>${escapeHtml(row.Position)}</td>
-        <td>${statusBadge(row.Status)}</td>
         <td>${escapeHtml(row.Available_Sundays || '-')}</td>
-        <td>${escapeHtml(row.Submitted_At || '-')}</td>
       </tr>
     `).join('');
   }
@@ -421,9 +545,10 @@
     document.getElementById('settingTargetMonth').value = settings.Current_Target_Month || state.data.targetMonth;
     document.getElementById('settingDeadline').value = settings.Submission_Deadline || '';
     document.getElementById('settingAdminEmail').value = settings.Admin_Email || '';
-    document.getElementById('settingChurchName').value = settings.Church_Name || '';
+    document.getElementById('settingAdminName').value = settings.Admin_Name || settings.Church_Name || '';
     document.getElementById('settingTeamName').value = settings.Team_Name || '';
     document.getElementById('settingWebAppUrl').value = settings.Web_App_URL || state.data.appUrl || '';
+    document.getElementById('settingReminderMessage').value = settings.Reminder_Message || '';
   }
 
   function openMemberModal(memberId) {
@@ -456,46 +581,143 @@
   }
 
   function openModal() {
+    setModalSaving(false);
     document.getElementById('modalBackdrop').classList.remove('hidden');
   }
 
   function closeModal() {
+    setModalSaving(false);
     document.getElementById('modalBackdrop').classList.add('hidden');
     state.modalMode = null;
     state.editingId = null;
   }
 
   function saveModal() {
+    setModalSaving(true);
     const values = Object.fromEntries(new FormData(document.getElementById('modalForm')).entries());
+    values.Team = state.adminTeam;
     const method = state.modalMode === 'member' ? 'saveMember' : 'savePosition';
     const idKey = state.modalMode === 'member' ? 'Member_ID' : 'Position_ID';
     if (state.editingId) values[idKey] = state.editingId;
     server.call(method, values)
       .then((data) => {
         state.data = data;
+        cacheAdminData();
         closeModal();
         renderAdmin();
         showToast('저장되었습니다.');
       })
-      .catch((error) => showToast(error.message || String(error)));
+      .catch((error) => {
+        setModalSaving(false);
+        showToast(error.message || String(error));
+      });
   }
 
-  function toggleMember(memberId, active) {
-    server.call('setMemberActive', memberId, active !== 'Yes').then(updateAfterAction);
+  function setModalSaving(isSaving) {
+    const saveButton = document.getElementById('saveModal');
+    const cancelButton = document.getElementById('cancelModal');
+    const closeButton = document.getElementById('closeModal');
+    const form = document.getElementById('modalForm');
+    if (saveButton) {
+      saveButton.disabled = isSaving;
+      saveButton.textContent = isSaving ? '저장 중...' : '저장';
+    }
+    if (cancelButton) cancelButton.disabled = isSaving;
+    if (closeButton) closeButton.disabled = isSaving;
+    if (form) {
+      form.querySelectorAll('input, select, textarea').forEach((field) => {
+        field.disabled = isSaving;
+      });
+    }
   }
 
-  function togglePosition(positionId, active) {
-    server.call('setPositionActive', positionId, active !== 'Yes').then(updateAfterAction);
+  function toggleMember(memberId, active, button) {
+    setInlineActionLoading(button, active === 'Yes' ? '비활성화 중...' : '활성화 중...');
+    server.call('setMemberActive', memberId, active !== 'Yes', state.adminTeam)
+      .then(updateAfterAction)
+      .catch((error) => {
+        setInlineActionLoading(button, null);
+        showToast(error.message || String(error));
+      });
+  }
+
+  function togglePosition(positionId, active, button) {
+    setInlineActionLoading(button, active === 'Yes' ? '비활성화 중...' : '활성화 중...');
+    server.call('setPositionActive', positionId, active !== 'Yes', state.adminTeam)
+      .then(updateAfterAction)
+      .catch((error) => {
+        setInlineActionLoading(button, null);
+        showToast(error.message || String(error));
+      });
+  }
+
+  function setInlineActionLoading(button, label) {
+    if (!button) return;
+    if (label) {
+      button.dataset.originalText = button.textContent;
+      button.textContent = label;
+      button.disabled = true;
+      return;
+    }
+    button.textContent = button.dataset.originalText || button.textContent;
+    button.disabled = false;
   }
 
   function removeMember(memberId) {
-    if (!confirm('멤버를 삭제하면 멤버 목록에서 제거됩니다. 가능한 경우 비활성 처리를 권장합니다. 삭제할까요?')) return;
-    server.call('deleteMember', memberId).then(updateAfterAction);
+    const member = (state.data.members || []).find((item) => item.Member_ID === memberId);
+    openDeleteModal({
+      type: 'member',
+      id: memberId,
+      message: `${member && member.Name ? member.Name : '이 멤버'}를 삭제하면 멤버 목록에서 제거됩니다.`,
+    });
   }
 
   function removePosition(positionId) {
-    if (!confirm('포지션을 삭제할까요? 기록 보존을 위해 비활성 처리를 권장합니다.')) return;
-    server.call('deletePosition', positionId).then(updateAfterAction);
+    const position = (state.data.positions || []).find((item) => item.Position_ID === positionId);
+    openDeleteModal({
+      type: 'position',
+      id: positionId,
+      message: `${position && position.Position_Name ? position.Position_Name : '이 포지션'}을 삭제하면 목록에서 제거됩니다.`,
+    });
+  }
+
+  function openDeleteModal(deleteRequest) {
+    state.pendingDelete = deleteRequest;
+    setDeleteSaving(false);
+    document.getElementById('deleteModalMessage').textContent = deleteRequest.message;
+    document.getElementById('deleteModalBackdrop').classList.remove('hidden');
+  }
+
+  function closeDeleteModal() {
+    setDeleteSaving(false);
+    document.getElementById('deleteModalBackdrop').classList.add('hidden');
+    state.pendingDelete = null;
+  }
+
+  function confirmDelete() {
+    if (!state.pendingDelete) return;
+    const request = state.pendingDelete;
+    const method = request.type === 'member' ? 'deleteMember' : 'deletePosition';
+    setDeleteSaving(true);
+    server.call(method, request.id, state.adminTeam)
+      .then((data) => {
+        closeDeleteModal();
+        updateAfterAction(data);
+      })
+      .catch((error) => {
+        setDeleteSaving(false);
+        showToast(error.message || String(error));
+      });
+  }
+
+  function setDeleteSaving(isSaving) {
+    const confirmButton = document.getElementById('confirmDelete');
+    const cancelButton = document.getElementById('cancelDelete');
+    if (confirmButton) {
+      confirmButton.disabled = isSaving;
+      confirmButton.textContent = isSaving ? '삭제 중...' : '예';
+    }
+    if (cancelButton) cancelButton.disabled = isSaving;
   }
 
   function saveGeneratedLineup() {
@@ -505,11 +727,14 @@
       button.textContent = '저장 중...';
     }
     server.call('saveAssignments', {
+      Team: state.adminTeam,
       Month: state.data.targetMonth,
       Assignments: state.data.assignments,
     }).then((data) => {
       state.data = data;
       state.hasPendingAssignmentChanges = false;
+      state.adminPendingChanges[state.adminTeam] = false;
+      cacheAdminData();
       renderAdminPrimary();
       showToast('라인업이 저장되었습니다.');
     }).catch((error) => {
@@ -529,6 +754,8 @@
     else names.push(name);
     row[position] = names.join(', ');
     state.hasPendingAssignmentChanges = true;
+    state.adminPendingChanges[state.adminTeam] = true;
+    cacheAdminData();
     renderAssignments();
     renderAvailability();
     updateLineupButton();
@@ -559,26 +786,118 @@
     button.textContent = '라인업 생성';
   }
 
-  function saveSettings() {
+  function saveSettings(button) {
+    setSettingsSaving(true, button);
     const settings = {
       Current_Target_Month: document.getElementById('settingTargetMonth').value,
       Submission_Deadline: document.getElementById('settingDeadline').value,
       Admin_Email: document.getElementById('settingAdminEmail').value,
-      Church_Name: document.getElementById('settingChurchName').value,
+      Admin_Name: document.getElementById('settingAdminName').value,
       Team_Name: document.getElementById('settingTeamName').value,
       Web_App_URL: document.getElementById('settingWebAppUrl').value,
+      Reminder_Message: document.getElementById('settingReminderMessage').value,
     };
-    server.call('saveSettings', settings).then(updateAfterAction);
+    server.call('saveSettings', settings, state.adminTeam)
+      .then((data) => {
+        setSettingsSaving(false, button);
+        updateAfterAction(data);
+      })
+      .catch((error) => {
+        setSettingsSaving(false, button);
+        showToast(error.message || String(error));
+      });
   }
 
-  function sendReminders() {
-    server.call('sendReminderEmails', state.data.targetMonth).then((result) => {
+  function setSettingsSaving(isSaving, button) {
+    const saveButton = button || document.getElementById('saveSettings');
+    if (saveButton) {
+      saveButton.disabled = isSaving;
+      saveButton.textContent = isSaving ? '저장 중...' : '설정 저장';
+    }
+    document.querySelectorAll('.settings-panel input, .settings-panel textarea').forEach((field) => {
+      field.disabled = isSaving;
+    });
+  }
+
+  function openReminderModal() {
+    state.reminderSelectedMemberIds = new Set();
+    renderReminderMembers();
+    setReminderSending(false);
+    document.getElementById('reminderModalBackdrop').classList.remove('hidden');
+  }
+
+  function closeReminderModal() {
+    setReminderSending(false);
+    document.getElementById('reminderModalBackdrop').classList.add('hidden');
+    state.reminderSelectedMemberIds = new Set();
+  }
+
+  function renderReminderMembers() {
+    const members = (state.data.activeMembers || []).filter((member) => member.Email);
+    const list = document.getElementById('reminderMemberList');
+    if (!members.length) {
+      list.innerHTML = '<p class="empty-message">이메일이 있는 활성 멤버가 없습니다.</p>';
+      return;
+    }
+    list.innerHTML = members.map((member) => reminderMemberButtonHtml(member)).join('');
+  }
+
+  function reminderMemberButtonHtml(member) {
+    const selected = state.reminderSelectedMemberIds.has(member.Member_ID);
+    return `
+      <button
+        type="button"
+        class="availability-name reminder-member ${selected ? 'selected' : ''}"
+        data-member-id="${escapeAttr(member.Member_ID)}"
+        onclick="toggleReminderMember(this)"
+      >
+        <span>${escapeHtml(member.Name)} <em>${escapeHtml(member.Position || '')}</em></span>
+        ${selected ? '<b aria-hidden="true">×</b>' : ''}
+      </button>
+    `;
+  }
+
+  function toggleReminderMember(button) {
+    const memberId = button.dataset.memberId;
+    if (state.reminderSelectedMemberIds.has(memberId)) state.reminderSelectedMemberIds.delete(memberId);
+    else state.reminderSelectedMemberIds.add(memberId);
+    renderReminderMembers();
+  }
+
+  function confirmReminder() {
+    const memberIds = Array.from(state.reminderSelectedMemberIds);
+    if (!memberIds.length) {
+      showToast('리마인더를 보낼 멤버를 선택해 주세요.');
+      return;
+    }
+    setReminderSending(true);
+    server.call('sendReminderEmails', state.data.targetMonth, state.adminTeam, memberIds).then((result) => {
+      closeReminderModal();
       showToast(`리마인더 ${result.sent}건을 발송했습니다.`);
-    }).catch((error) => showToast(error.message || String(error)));
+    }).catch((error) => {
+      setReminderSending(false);
+      showToast(error.message || String(error));
+    });
+  }
+
+  function setReminderSending(isSending) {
+    const sendButton = document.getElementById('confirmReminder');
+    const cancelButton = document.getElementById('cancelReminder');
+    const closeButton = document.getElementById('closeReminderModal');
+    if (sendButton) {
+      sendButton.disabled = isSending;
+      sendButton.textContent = isSending ? '전송 중...' : '보내기';
+    }
+    if (cancelButton) cancelButton.disabled = isSending;
+    if (closeButton) closeButton.disabled = isSending;
+    document.querySelectorAll('#reminderMemberList button').forEach((button) => {
+      button.disabled = isSending;
+    });
   }
 
   function updateAfterAction(data) {
     state.data = data;
+    cacheAdminData();
     renderAdmin();
     showToast('반영되었습니다.');
   }
@@ -590,7 +909,7 @@
 
   function activeBadge(active) {
     const isActive = active === 'Yes';
-    return `<span class="status-badge ${isActive ? 'status-submitted' : 'status-inactive'}">${isActive ? '활성' : '비활성'}</span>`;
+    return `<span class="status-badge ${isActive ? 'status-active-outline' : 'status-inactive'}">${isActive ? '활성' : '비활성'}</span>`;
   }
 
   function showToast(message) {
@@ -606,9 +925,23 @@
     return `${parts[0]}년 ${Number(parts[1])}월`;
   }
 
+  function formatMonthRange(month) {
+    if (!month) return '-';
+    const currentParts = month.split('-');
+    if (currentParts.length < 2) return '-';
+    const year = Number(currentParts[0]);
+    const monthNumber = Number(currentParts[1]);
+    const nextMonth = monthNumber === 12 ? 1 : monthNumber + 1;
+    return `${year}년 ${monthNumber}월 - ${nextMonth}월`;
+  }
+
   function formatShortDate(date) {
     if (!date) return '-';
     return `${Number(date.slice(5, 7))}/${Number(date.slice(8, 10))}`;
+  }
+
+  function formatDateOnly(value) {
+    return value ? String(value).slice(0, 10) : '';
   }
 
   function parseAvailableSundays(value) {

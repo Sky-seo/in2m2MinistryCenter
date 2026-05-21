@@ -7,22 +7,43 @@
 <body>
   <div class="admin-shell">
     <aside class="sidebar">
-      <div class="sidebar-brand">
-        <div class="brand-mark">진</div>
-        <div>
-          <h1>진행팀 Scheduler</h1>
-          <p>Church Production Team</p>
-        </div>
+      <div class="team-section active" data-team="production">
+        <button type="button" class="team-header">
+          <span class="brand-mark">진</span>
+          <span class="team-title">
+            <strong>진행팀</strong>
+            <em>Admin</em>
+          </span>
+          <span class="team-chevron">⌃</span>
+        </button>
+        <nav class="nav-list">
+          <button class="nav-item active" data-view="dashboard">Dashboard</button>
+          <button class="nav-item" data-view="members">Members</button>
+          <button class="nav-item" data-view="positions">Positions</button>
+          <button class="nav-item" data-view="availability">Availability</button>
+          <button class="nav-item" data-view="assignments">Assignments</button>
+          <button class="nav-item" data-view="settings">Settings</button>
+        </nav>
       </div>
-      <nav class="nav-list">
-        <button class="nav-item active" data-view="dashboard">Dashboard</button>
-        <button class="nav-item" data-view="members">Members</button>
-        <button class="nav-item" data-view="positions">Positions</button>
-        <button class="nav-item" data-view="availability">Availability</button>
-        <button class="nav-item" data-view="assignments">Assignments</button>
-        <button class="nav-item" data-view="settings">Settings</button>
-      </nav>
-      <a class="public-link" href="<?!= appUrl ?>" target="_top">Public Submission</a>
+      <div class="team-section" data-team="praise">
+        <button type="button" class="team-header">
+          <span class="brand-mark">찬</span>
+          <span class="team-title">
+            <strong>찬양팀</strong>
+            <em>Admin</em>
+          </span>
+          <span class="team-chevron">⌄</span>
+        </button>
+        <nav class="nav-list">
+          <button class="nav-item active" data-view="dashboard">Dashboard</button>
+          <button class="nav-item" data-view="members">Members</button>
+          <button class="nav-item" data-view="positions">Positions</button>
+          <button class="nav-item" data-view="availability">Availability</button>
+          <button class="nav-item" data-view="assignments">Assignments</button>
+          <button class="nav-item" data-view="settings">Settings</button>
+        </nav>
+      </div>
+      <a class="public-link" href="<?!= appUrl ?>" target="_top">Home</a>
     </aside>
 
     <main class="admin-main">
@@ -37,20 +58,20 @@
       <section id="view-dashboard" class="admin-view active">
         <div class="summary-grid">
           <article class="summary-card"><span>Total Members</span><strong id="totalMembers">0</strong></article>
-          <article class="summary-card"><span>Submitted</span><strong id="submittedCount">0</strong></article>
-          <article class="summary-card warning"><span>Not Submitted</span><strong id="notSubmittedCount">0</strong></article>
+          <article class="summary-card"><span>Active</span><strong id="submittedCount">0</strong></article>
+          <article class="summary-card warning"><span>Not Active</span><strong id="notSubmittedCount">0</strong></article>
           <article class="summary-card"><span>Target Month</span><strong id="targetMonthSummary">-</strong></article>
         </div>
         <div class="panel">
           <div class="panel-header">
-            <h3>제출 현황</h3>
+            <h3>멤버현황</h3>
             <button class="primary-button" id="sendDashboardReminders">리마인더 보내기</button>
           </div>
           <div class="table-wrap">
             <table>
-              <thead><tr><th>이름</th><th>포지션</th><th>상태</th><th>가능 주일</th><th>제출 시간</th></tr></thead>
+              <thead><tr><th>이름</th><th>포지션</th><th>가능 주일</th></tr></thead>
               <tbody id="dashboardStatusRows">
-                <tr><td colspan="5">관리자 데이터를 불러오는 중...</td></tr>
+                <tr><td colspan="3">관리자 데이터를 불러오는 중...</td></tr>
               </tbody>
             </table>
           </div>
@@ -89,6 +110,33 @@
       <div class="modal-actions">
         <button class="secondary-button" id="cancelModal">취소</button>
         <button class="primary-button" id="saveModal">저장</button>
+      </div>
+    </div>
+  </div>
+
+  <div id="deleteModalBackdrop" class="modal-backdrop hidden">
+    <div class="modal confirm-modal">
+      <div class="modal-header">
+        <h3>정말로 삭제하시겠습니까?</h3>
+      </div>
+      <p id="deleteModalMessage">삭제하면 목록에서 제거됩니다.</p>
+      <div class="modal-actions">
+        <button class="secondary-button" id="cancelDelete">아니오</button>
+        <button class="danger-button" id="confirmDelete">예</button>
+      </div>
+    </div>
+  </div>
+
+  <div id="reminderModalBackdrop" class="modal-backdrop hidden">
+    <div class="modal reminder-modal">
+      <div class="modal-header">
+        <h3>리마인더 보낼 멤버 선택</h3>
+        <button class="icon-button" id="closeReminderModal">×</button>
+      </div>
+      <div id="reminderMemberList" class="reminder-member-list"></div>
+      <div class="modal-actions">
+        <button class="secondary-button" id="cancelReminder">취소</button>
+        <button class="primary-button" id="confirmReminder">보내기</button>
       </div>
     </div>
   </div>

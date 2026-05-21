@@ -5,7 +5,8 @@
 ## 파일 구성
 
 - `Code.gs`: Apps Script 백엔드, Google Sheets 구조 생성, CRUD, 제출 저장, 제출 현황, 라인업, 이메일 리마인더
-- `Index.html`: 팀원 가능 주일 제출 페이지
+- `Index.html`: 첫 진입 화면
+- `Submission.html`: 찬양팀/진행팀 가능 주일 제출 페이지
 - `Admin.html`: 관리자 화면 기본 구조
 - `Members.html`, `Positions.html`, `Availability.html`, `Assignments.html`, `Settings.html`: 관리자 화면별 섹션
 - `Styles.html`: 공통 스타일
@@ -25,7 +26,8 @@
 
 ## 접속 주소
 
-- 팀원 제출 페이지: 배포 URL
+- 첫 진입 화면: 배포 URL
+- 팀원 제출 페이지: 배포 URL 뒤에 `?page=submission` 추가
 - 관리자 대시보드: 배포 URL 뒤에 `?page=admin` 추가
 
 ## Version 1 포함 기능
@@ -33,6 +35,7 @@
 - 필요한 Google Sheet 탭과 헤더를 자동 생성합니다.
 - 기본 포지션을 생성합니다: 자막, 조명, 음향, 카메라, 믹싱, PD, FD
 - 팀원 제출 화면에는 활성 멤버만 표시됩니다.
+- 제출 화면은 찬양팀/진행팀 탭을 제공하며, 하나의 Spreadsheet 안에서 진행팀은 `OP-` 접두어 탭, 찬양팀은 `PR-` 접두어 탭을 사용합니다.
 - 이름을 선택하면 고정 포지션이 자동으로 표시됩니다.
 - `Current_Target_Month` 값을 기준으로 해당 월의 주일을 자동 생성합니다.
 - 같은 멤버가 같은 월에 다시 제출하면 기존 제출 행을 업데이트합니다.

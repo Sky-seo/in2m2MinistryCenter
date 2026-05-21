@@ -226,7 +226,8 @@
 
   .secondary-button {
     color: var(--blue);
-    background: var(--blue-soft);
+    border: 1px solid rgba(47, 111, 159, 0.32);
+    background: transparent;
   }
 
   .danger-button {
@@ -236,7 +237,8 @@
 
   .ghost-button {
     color: var(--muted);
-    background: #f1f4f8;
+    border: 1px solid var(--line);
+    background: transparent;
   }
 
   .icon-button {
@@ -282,6 +284,41 @@
     color: var(--muted);
   }
 
+  .entry-card {
+    padding: 22px;
+  }
+
+  .entry-actions {
+    display: grid;
+    gap: 12px;
+  }
+
+  .entry-button {
+    display: grid;
+    place-items: center;
+    min-height: 64px;
+    border: 1px solid var(--line);
+    border-radius: 14px;
+    padding: 14px;
+    color: var(--text);
+    background: #ffffff;
+    font-size: 18px;
+    font-weight: 900;
+    text-decoration: none;
+  }
+
+  .entry-button.primary-entry {
+    color: #ffffff;
+    border-color: var(--blue);
+    background: var(--blue);
+  }
+
+  .entry-button:disabled {
+    color: var(--muted);
+    background: #f1f4f8;
+    cursor: not-allowed;
+  }
+
   .admin-link,
   .public-link {
     color: var(--blue);
@@ -301,24 +338,72 @@
     padding: 24px;
   }
 
-  .sidebar-brand h1 {
-    font-size: 18px;
+  .team-section {
+    border-bottom: 1px solid var(--line);
+    padding: 0 0 24px;
+  }
+
+  .team-section + .team-section {
+    padding-top: 28px;
+  }
+
+  .team-header {
+    width: 100%;
+    border: 0;
+    padding: 0;
+    display: grid;
+    grid-template-columns: 56px 1fr 28px;
+    align-items: center;
+    gap: 14px;
+    color: var(--text);
+    background: transparent;
+    text-align: left;
+  }
+
+  .team-title {
+    display: grid;
+    gap: 2px;
+  }
+
+  .team-title strong {
+    font-size: 20px;
+    font-weight: 900;
+  }
+
+  .team-title em {
+    color: var(--muted);
+    font-size: 15px;
+    font-style: normal;
+    font-weight: 700;
+  }
+
+  .team-chevron {
+    color: #111827;
+    font-size: 30px;
+    font-weight: 900;
+    line-height: 1;
+    text-align: center;
   }
 
   .nav-list {
     display: grid;
     gap: 8px;
-    margin-top: 34px;
+    margin-top: 22px;
+  }
+
+  .team-section:not(.active) .nav-list {
+    display: none;
   }
 
   .nav-item {
     border: 0;
-    border-radius: 12px;
-    padding: 12px 14px;
+    border-radius: 14px;
+    padding: 14px 18px;
     color: var(--muted);
     background: transparent;
     text-align: left;
-    font-weight: 800;
+    font-size: 18px;
+    font-weight: 900;
   }
 
   .nav-item.active {
@@ -329,6 +414,10 @@
   .public-link {
     display: inline-block;
     margin-top: 28px;
+    padding: 12px 18px;
+    color: var(--blue);
+    font-size: 18px;
+    font-weight: 900;
   }
 
   .admin-main {
@@ -439,7 +528,8 @@
 
   .status-submitted {
     color: var(--green);
-    background: var(--green-soft);
+    border: 1px solid rgba(43, 138, 62, 0.32);
+    background: transparent;
   }
 
   .status-missing {
@@ -447,9 +537,16 @@
     background: var(--orange-soft);
   }
 
+  .status-active-outline {
+    color: var(--green);
+    border: 1px solid rgba(43, 138, 62, 0.32);
+    background: transparent;
+  }
+
   .status-inactive {
     color: var(--muted);
-    background: #edf1f5;
+    border: 1px solid var(--line);
+    background: transparent;
   }
 
   .availability-matrix {
@@ -539,6 +636,35 @@
     line-height: 1;
   }
 
+  .reminder-modal {
+    width: min(100%, 560px);
+  }
+
+  .reminder-member-list {
+    display: grid;
+    gap: 8px;
+    max-height: 380px;
+    margin-top: 16px;
+    overflow: auto;
+  }
+
+  .reminder-member span {
+    display: flex;
+    align-items: baseline;
+    gap: 8px;
+  }
+
+  .reminder-member em {
+    color: var(--muted);
+    font-size: 13px;
+    font-style: normal;
+    font-weight: 700;
+  }
+
+  .empty-message {
+    color: var(--muted);
+  }
+
   .availability-position-block em {
     color: var(--muted);
     font-style: normal;
@@ -553,6 +679,10 @@
   .settings-grid label {
     display: grid;
     gap: 8px;
+  }
+
+  .settings-full {
+    grid-column: 1 / -1;
   }
 
   .assignment-name-pill {
@@ -586,6 +716,16 @@
     width: min(100%, 520px);
     border-radius: var(--radius);
     padding: 20px;
+  }
+
+  .confirm-modal {
+    width: min(100%, 420px);
+  }
+
+  .confirm-modal p {
+    margin-top: 12px;
+    color: var(--muted);
+    line-height: 1.5;
   }
 
   .modal-body {

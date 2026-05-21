@@ -1,0 +1,69 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+  <base target="_top">
+  <?!= include('Styles'); ?>
+</head>
+<body>
+  <main class="public-shell">
+    <section class="brand-block">
+      <div class="brand-mark">진</div>
+      <div>
+        <h1>IN2M2 Scheduler</h1>
+        <p>Ministry Team Availability</p>
+      </div>
+    </section>
+
+    <section id="submissionCard" class="card public-card">
+      <div class="team-tabs" role="tablist" aria-label="팀 선택">
+        <button type="button" class="team-tab" data-team="praise">찬양팀</button>
+        <button type="button" class="team-tab active" data-team="production">진행팀</button>
+      </div>
+
+      <div class="page-heading">
+        <p class="eyebrow" id="targetMonthLabel">Target Month</p>
+      </div>
+
+      <div class="field-group">
+        <label for="memberSelect">이름 선택</label>
+        <select id="memberSelect" disabled>
+          <option value="">이름 목록 불러오는 중...</option>
+        </select>
+        <div id="memberPosition" class="pill hidden"></div>
+      </div>
+
+      <div class="field-group">
+        <label>가능한 주일 선택</label>
+        <div id="sundayGrid" class="date-grid">
+          <button type="button" class="date-card" disabled>
+            <strong>달력 불러오는 중...</strong>
+            <span>잠시만 기다려 주세요</span>
+          </button>
+        </div>
+      </div>
+
+      <div class="field-group">
+        <label for="notes">메모</label>
+        <textarea id="notes" rows="3" placeholder="필요한 메모가 있으면 적어 주세요"></textarea>
+      </div>
+
+      <button id="submitAvailability" class="primary-button full-button" disabled>제출하기</button>
+      <p id="formMessage" class="form-message"></p>
+    </section>
+
+    <section id="successCard" class="card public-card success-card hidden">
+      <div class="success-icon">✓</div>
+      <h2>제출이 완료되었습니다</h2>
+      <p>가능 주일이 저장되었습니다. 다시 제출하면 기존 제출 내용이 업데이트됩니다.</p>
+      <button class="secondary-button full-button" id="submitAgain">다시 수정하기</button>
+    </section>
+
+    <a class="admin-link" href="<?!= appUrl ?>?page=admin" target="_top">관리자 화면</a>
+  </main>
+
+  <?!= include('Scripts'); ?>
+  <script>
+    bootPublicApp();
+  </script>
+</body>
+</html>
