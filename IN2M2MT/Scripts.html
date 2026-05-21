@@ -264,6 +264,7 @@
     bindIfPresent('closeReminderModal', 'click', closeReminderModal);
     bindIfPresent('cancelReminder', 'click', closeReminderModal);
     bindIfPresent('confirmReminder', 'click', confirmReminder);
+    bindIfPresent('toggleAllReminders', 'click', toggleAllReminderMembers);
   }
 
   function bindIfPresent(id, eventName, handler) {
@@ -399,7 +400,7 @@
     const active = document.getElementById('memberActiveFilter').value;
     const rows = (state.data.members || []).filter((member) => {
       if (search && !String(member.Name).toLowerCase().includes(search)) return false;
-      if (position && member.Position !== position) return false;
+      if (position && !hasPosition(member.Position, position)) return false;
       if (active && member.Active !== active) return false;
       return true;
     });
@@ -444,7 +445,7 @@
     const statusFilter = document.getElementById('availabilityStatusFilter');
     const status = statusFilter ? statusFilter.value : '';
     const rows = (state.data.availabilityRows || state.data.status || []).filter((row) => {
-      if (position && row.Position !== position) return false;
+      if (position && !hasPosition(row.Position, position)) return false;
       if (status && row.Status !== status) return false;
       return true;
     });
@@ -459,7 +460,7 @@
       .map((item) => item.Position_Name)
       .filter((name) => !position || name === position);
     const extraPositionNames = rows
-      .map((row) => row.Position)
+      .flatMap((row) => splitPositions(row.Position))
       .filter((name) => name && !positionNames.includes(name));
     const groupedPositions = positionNames.concat(extraPositionNames);
 
@@ -475,7 +476,7 @@
       <td class="availability-week-cell">
         ${positionNames.map((positionName) => {
           const names = rows
-            .filter((row) => row.Position === positionName)
+            .filter((row) => hasPosition(row.Position, positionName))
             .filter((row) => parseAvailableSundays(row.Available_Sundays).has(date))
             .map((row) => row.Name);
           return `
@@ -513,7 +514,7 @@
       <tr>
         <td><strong>${escapeHtml(row.Name)}</strong></td>
         <td>${escapeHtml(row.Position)}</td>
-        <td>${escapeHtml(row.Available_Sundays || '-')}</td>
+        <td>${escapeHtml(formatDateListShort(row.Available_Sundays))}</td>
       </tr>
     `).join('');
   }
@@ -525,7 +526,7 @@
     `;
     document.getElementById('assignmentsRows').innerHTML = (state.data.assignments || []).map((row) => `
       <tr data-date="${escapeHtml(row.Date)}">
-        <td><strong>${escapeHtml(row.Date)}</strong></td>
+        <td><strong>${escapeHtml(formatShortDate(row.Date))}</strong></td>
         ${positions.map((position) => `
           <td>${assignmentNamesHtml(row[position.Position_Name])}</td>
         `).join('')}
@@ -553,13 +554,19 @@
 
   function openMemberModal(memberId) {
     const member = state.data.members.find((item) => item.Member_ID === memberId) || {};
+    const selectedPositions = splitPositions(member.Position);
     state.modalMode = 'member';
     state.editingId = memberId || null;
     document.getElementById('modalTitle').textContent = memberId ? '멤버 수정' : '새 멤버 추가';
     document.getElementById('modalForm').innerHTML = `
       <label>이름<input name="Name" value="${escapeAttr(member.Name || '')}" required></label>
       <label>이메일<input name="Email" type="email" value="${escapeAttr(member.Email || '')}"></label>
-      <label>포지션<select name="Position">${state.data.positions.map((position) => `<option value="${escapeAttr(position.Position_Name)}" ${member.Position === position.Position_Name ? 'selected' : ''}>${escapeHtml(position.Position_Name)}</option>`).join('')}</select></label>
+      <label>포지션<div class="checkbox-list">${state.data.positions.map((position) => `
+        <label class="checkbox-option">
+          <input type="checkbox" name="Position" value="${escapeAttr(position.Position_Name)}" ${selectedPositions.includes(position.Position_Name) ? 'checked' : ''}>
+          <span>${escapeHtml(position.Position_Name)}</span>
+        </label>
+      `).join('')}</div></label>
       <label>상태<select name="Active"><option value="Yes" ${member.Active !== 'No' ? 'selected' : ''}>활성</option><option value="No" ${member.Active === 'No' ? 'selected' : ''}>비활성</option></select></label>
       <label>메모<textarea name="Notes" rows="3">${escapeHtml(member.Notes || '')}</textarea></label>
     `;
@@ -593,8 +600,10 @@
   }
 
   function saveModal() {
+    const formData = new FormData(document.getElementById('modalForm'));
+    const values = Object.fromEntries(formData.entries());
+    if (state.modalMode === 'member') values.Position = formData.getAll('Position').join(', ');
     setModalSaving(true);
-    const values = Object.fromEntries(new FormData(document.getElementById('modalForm')).entries());
     values.Team = state.adminTeam;
     const method = state.modalMode === 'member' ? 'saveMember' : 'savePosition';
     const idKey = state.modalMode === 'member' ? 'Member_ID' : 'Position_ID';
@@ -835,6 +844,7 @@
   function renderReminderMembers() {
     const members = (state.data.activeMembers || []).filter((member) => member.Email);
     const list = document.getElementById('reminderMemberList');
+    updateReminderSelectAllButton(members);
     if (!members.length) {
       list.innerHTML = '<p class="empty-message">이메일이 있는 활성 멤버가 없습니다.</p>';
       return;
@@ -864,6 +874,23 @@
     renderReminderMembers();
   }
 
+  function toggleAllReminderMembers() {
+    const members = (state.data.activeMembers || []).filter((member) => member.Email);
+    const allSelected = members.length && members.every((member) => state.reminderSelectedMemberIds.has(member.Member_ID));
+    state.reminderSelectedMemberIds = allSelected
+      ? new Set()
+      : new Set(members.map((member) => member.Member_ID));
+    renderReminderMembers();
+  }
+
+  function updateReminderSelectAllButton(members) {
+    const button = document.getElementById('toggleAllReminders');
+    if (!button) return;
+    const allSelected = members.length && members.every((member) => state.reminderSelectedMemberIds.has(member.Member_ID));
+    button.textContent = allSelected ? '전체해제' : '전체선택';
+    button.disabled = !members.length;
+  }
+
   function confirmReminder() {
     const memberIds = Array.from(state.reminderSelectedMemberIds);
     if (!memberIds.length) {
@@ -890,6 +917,8 @@
     }
     if (cancelButton) cancelButton.disabled = isSending;
     if (closeButton) closeButton.disabled = isSending;
+    const toggleAllButton = document.getElementById('toggleAllReminders');
+    if (toggleAllButton) toggleAllButton.disabled = isSending;
     document.querySelectorAll('#reminderMemberList button').forEach((button) => {
       button.disabled = isSending;
     });
@@ -940,6 +969,11 @@
     return `${Number(date.slice(5, 7))}/${Number(date.slice(8, 10))}`;
   }
 
+  function formatDateListShort(value) {
+    const dates = String(value || '').split(',').map((item) => item.trim()).filter(Boolean);
+    return dates.length ? dates.map(formatShortDate).join(', ') : '-';
+  }
+
   function formatDateOnly(value) {
     return value ? String(value).slice(0, 10) : '';
   }
@@ -950,6 +984,15 @@
 
   function splitNames(value) {
     return String(value || '').split(',').map((item) => item.trim()).filter(Boolean);
+  }
+
+  function splitPositions(value) {
+    return splitNames(value)
+      .filter((position, index, positions) => positions.indexOf(position) === index);
+  }
+
+  function hasPosition(value, position) {
+    return splitPositions(value).includes(position);
   }
 
   function normalizeText(value) {

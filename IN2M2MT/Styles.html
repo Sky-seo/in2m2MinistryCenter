@@ -111,6 +111,32 @@
     padding: 28px;
   }
 
+  .team-tabs {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 6px;
+    margin-bottom: 22px;
+    border: 1px solid var(--line);
+    border-radius: 14px;
+    padding: 6px;
+    background: #f7f9fc;
+  }
+
+  .team-tab {
+    border: 0;
+    border-radius: 10px;
+    min-height: 44px;
+    color: var(--muted);
+    background: transparent;
+    font-weight: 900;
+  }
+
+  .team-tab.active {
+    color: #ffffff;
+    background: var(--blue);
+    box-shadow: 0 8px 18px rgba(47, 111, 159, 0.18);
+  }
+
   .page-heading {
     margin-bottom: 24px;
   }
@@ -150,6 +176,35 @@
     background: #ffffff;
     padding: 12px 13px;
     outline: none;
+  }
+
+  select[multiple] {
+    min-height: 148px;
+  }
+
+  .checkbox-list {
+    display: grid;
+    gap: 8px;
+    max-height: 126px;
+    overflow: auto;
+    border: 1px solid var(--line);
+    border-radius: 12px;
+    padding: 10px;
+    background: #ffffff;
+  }
+
+  .checkbox-option {
+    display: flex !important;
+    grid-template-columns: none !important;
+    align-items: center;
+    gap: 9px !important;
+    color: var(--text);
+    font-weight: 700;
+  }
+
+  .checkbox-option input {
+    width: auto;
+    margin: 0;
   }
 
   input:focus,
@@ -646,6 +701,11 @@
     max-height: 380px;
     margin-top: 16px;
     overflow: auto;
+  }
+
+  .reminder-select-all {
+    width: 100%;
+    margin-top: 16px;
   }
 
   .reminder-member span {

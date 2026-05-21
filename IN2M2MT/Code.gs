@@ -348,7 +348,7 @@ function saveMember(member) {
     Member_ID: id,
     Name: clean_(member.Name),
     Email: clean_(member.Email),
-    Position: clean_(member.Position),
+    Position: normalizePositionList_(member.Position),
     Active: member.Active === 'No' ? 'No' : 'Yes',
     Join_Date: member.Join_Date || today_(),
     Notes: clean_(member.Notes),
@@ -576,7 +576,7 @@ function generateLineup(month, team) {
     positions.forEach((position) => {
       const needed = Number(position.Required_Per_Sunday || 1);
       const candidates = members
-        .filter((member) => member.Position === position.Position_Name)
+        .filter((member) => memberHasPosition_(member, position.Position_Name))
         .filter((member) => {
           const submission = submissions.find((item) => sameMemberSubmission_(item, member));
           return submission && parseDateList_(submission.Available_Sundays).indexOf(date) > -1;
@@ -911,6 +911,23 @@ function isGeneratedId_(value, prefix) {
 
 function clean_(value) {
   return String(value || '').trim();
+}
+
+function normalizePositionList_(value) {
+  const positions = Array.isArray(value) ? value : String(value || '').split(',');
+  return positions
+    .map(clean_)
+    .filter(Boolean)
+    .filter((position, index, list) => list.indexOf(position) === index)
+    .join(', ');
+}
+
+function splitPositionList_(value) {
+  return normalizePositionList_(value).split(',').map(clean_).filter(Boolean);
+}
+
+function memberHasPosition_(member, positionName) {
+  return splitPositionList_(member.Position).indexOf(clean_(positionName)) > -1;
 }
 
 function htmlEscape_(value) {
