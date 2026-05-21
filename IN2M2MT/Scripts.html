@@ -526,7 +526,11 @@
     `;
     document.getElementById('assignmentsRows').innerHTML = (state.data.assignments || []).map((row) => `
       <tr data-date="${escapeHtml(row.Date)}">
-        <td><strong>${escapeHtml(formatShortDate(row.Date))}</strong></td>
+        <td>
+          <button type="button" class="copy-date-button" onclick="copyAssignmentLineup('${escapeAttr(row.Date)}')">
+            ${escapeHtml(formatShortDate(row.Date))}
+          </button>
+        </td>
         ${positions.map((position) => `
           <td>${assignmentNamesHtml(row[position.Position_Name])}</td>
         `).join('')}
@@ -539,6 +543,38 @@
     return names.length
       ? names.map((name) => `<span class="assignment-name-pill">${escapeHtml(name)}</span>`).join('')
       : '<span class="assignment-empty">-</span>';
+  }
+
+  function copyAssignmentLineup(date) {
+    const row = (state.data.assignments || []).find((item) => item.Date === date);
+    if (!row) return;
+    const lines = [
+      `${formatShortDate(date)} 주일예배`,
+      '[라인업]',
+    ];
+    (state.data.activePositions || []).forEach((position) => {
+      const names = splitNames(row[position.Position_Name]);
+      if (names.length) lines.push(`${position.Position_Name} ${names.join(' ')}`);
+    });
+    copyText(lines.join('\n'))
+      .then(() => showToast('라인업을 복사했습니다.'))
+      .catch((error) => showToast(error.message || String(error)));
+  }
+
+  function copyText(text) {
+    if (navigator.clipboard && navigator.clipboard.writeText) {
+      return navigator.clipboard.writeText(text);
+    }
+    const textarea = document.createElement('textarea');
+    textarea.value = text;
+    textarea.setAttribute('readonly', '');
+    textarea.style.position = 'fixed';
+    textarea.style.left = '-9999px';
+    document.body.appendChild(textarea);
+    textarea.select();
+    const copied = document.execCommand('copy');
+    document.body.removeChild(textarea);
+    return copied ? Promise.resolve() : Promise.reject(new Error('복사에 실패했습니다.'));
   }
 
   function renderSettings() {
